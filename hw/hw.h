@@ -586,6 +586,14 @@ extern const VMStateDescription vmstate_i2c_slave;
     .offset     = vmstate_offset_macaddr(_state, _field),            \
 }
 
+#define VMSTATE_LIST(_field, _state, _version, _vmsd) { \
+    .name       = (stringify(_field)),                               \
+    .version_id = (_version),                                        \
+    .vmsd       = &(_vmsd),                                          \
+    .flags      = VMS_LIST                                           \
+    .offset     = vmstate_offset_value(_state, _field, __state *),   \
+}
+
 /* _f : field name
    _f_n : num of elements field_name
    _n : num of elements

@@ -3895,6 +3895,9 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
     register_savevm_live(dev, "virtio-9p", 0, 4, NULL, virtio_9p_save_live,
                          virtio_9p_save, virtio_9p_load, s);
 
+    register_savevm(dev, "virtio-9p", -1, 1,
+                    virtio_9p_save, virtio_9p_load, s);
+
     return &s->vdev;
 }
 
@@ -3913,10 +3916,24 @@ static int virtio_9p_init_pci(PCIDevice *pci_dev)
     return 0;
 }
 
+static const VMStateDescription vmstate_9p = {
+    .name = "virtio-9p",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField []) {
+        VMSTATE_LIST()
+        VMSTATE_UNUSED_TEST(is_version_1, 4), /* was instance id */
+        VMSTATE_UINT32_SUB_ARRAY(mac_reg, E1000State, VFTA, 128),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static PCIDeviceInfo virtio_9p_info = {
         .qdev.name = "virtio-9p-pci",
         .qdev.size = sizeof(VirtIOPCIProxy),
         .init      = virtio_9p_init_pci,
+        .qdev.vmsd  = &vmstate_9p,
         .qdev.props = (Property[]) {
             DEFINE_VIRTIO_COMMON_FEATURES(VirtIOPCIProxy, host_features),
             DEFINE_PROP_STRING("mount_tag", VirtIOPCIProxy, fsconf.tag),
