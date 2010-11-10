@@ -3665,6 +3665,90 @@ static void virtio_9p_get_config(VirtIODevice *vdev, uint8_t *config)
     qemu_free(cfg);
 }
 
+static void virtio_9p_save_string(QEMUFile *f, V9fsString *path)
+{
+    qemu_put_be16(f, path->size);
+    qemu_put_buffer(f, (const uint8_t *)path->data, path->size);
+}
+
+static void virtio_9p_save_fid(QEMUFile *f, V9fsFidState *fid)
+{
+    /* First close the fid */
+    if (fid->fid_type == P9_FID_FILE) {
+        close(fid->fs.fd);
+    } else if (fid->fid_type == P9_FID_DIR) {
+        closedir(fid->fs.dir);
+    }
+    qemu_put_be32(f, fid->fid_type);
+    qemu_put_be32(f, fid->open_flags);
+    qemu_put_be32(f, fid->fid);
+    virtio_9p_save_string(f, &fid->path);
+    qemu_put_be32(f, fid->uid);
+}
+
+static void virtio_9p_save(QEMUFile *f, void *opaque)
+{
+    int fidcount = 0;
+    V9fsState *s = opaque;
+    V9fsFidState *fid;
+
+    virtio_save(&s->vdev, f);
+
+    for (fid = s->fid_list; fid; fid = fid->next) {
+        fidcount++;
+    }
+    /* Write the total number of fid structure */
+    qemu_put_be32(f, fidcount);
+
+    for (fid = s->fid_list; fid; fid = fid->next) {
+        virtio_9p_save_fid(f, fid);
+    }
+    /* We will have to fill other values later */
+}
+
+static void virtio_9p_load_string(QEMUFile *f, V9fsString *path)
+{
+    path->size = qemu_get_be16(f);
+    path->data = qemu_mallocz(path->size);
+    qemu_get_buffer(f, (uint8_t *)path->data, path->size);
+}
+
+static V9fsFidState *virtio_9p_load_fid(QEMUFile *f)
+{
+    V9fsFidState *fid;
+    fid = qemu_mallocz(sizeof(*fid));
+    fid->fid_type   = qemu_get_be32(f);
+    fid->open_flags = qemu_get_be32(f);
+    fid->fid        = qemu_get_be32(f);
+    virtio_9p_load_string(f, &fid->path);
+    fid->uid = qemu_get_be32(f);
+
+    /* Mark the fid as migrated fid */
+    fid->fid_flags   = P9_FID_MIGRATE;
+    return fid;
+}
+
+static int virtio_9p_load(QEMUFile *f, void *opaque, int version_id)
+{
+    int fidcount;
+    V9fsState *s = opaque;
+    V9fsFidState **fid;
+
+    if (version_id != 1) {
+        return -EINVAL;
+    }
+    virtio_load(&s->vdev, f);
+    fidcount = qemu_get_be32(f);
+
+    fid = &s->fid_list;
+    while (fidcount) {
+        *fid = virtio_9p_load_fid(f);
+        fid = &((*fid)->next);
+        fidcount--;
+    }
+    return 0;
+}
+
 VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
  {
     V9fsState *s;
@@ -3754,6 +3838,9 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
                         s->tag_len;
     s->vdev.get_config = virtio_9p_get_config;
 
+    /* instance id should be derived from mount tag */
+    register_savevm(dev, "virtio-9p", -1, 1,
+                    virtio_9p_save, virtio_9p_load, s);
     return &s->vdev;
 }
 
