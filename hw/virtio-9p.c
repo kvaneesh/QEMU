@@ -435,6 +435,16 @@ static V9fsFidState *lookup_fid(V9fsState *s, int32_t fid)
 
     for (f = s->fid_list; f; f = f->next) {
         if (f->fid == fid) {
+            /*
+             * Check whether this is a migrated fid
+             */
+            if (f->fid_flags & P9_FID_MIGRATE) {
+                if (f->fid_type == P9_FID_FILE) {
+                    f->fs.fd = v9fs_do_open(s, &f->path, f->open_flags);
+                } else if (f->fid_type == P9_FID_DIR) {
+                    f->fs.dir = v9fs_do_opendir(s, &f->path);
+                }
+            }
             return f;
         }
     }
@@ -454,6 +464,8 @@ static V9fsFidState *alloc_fid(V9fsState *s, int32_t fid)
     f = qemu_mallocz(sizeof(V9fsFidState));
 
     f->fid = fid;
+    f->open_flags = 0;
+    f->fid_flags = 0;
     f->fid_type = P9_FID_NONE;
 
     f->next = s->fid_list;
@@ -1724,6 +1736,7 @@ static void v9fs_open_post_lstat(V9fsState *s, V9fsOpenState *vs, int err)
             flags = omode_to_uflags(vs->mode);
         }
         vs->fidp->fs.fd = v9fs_do_open(s, &vs->fidp->path, flags);
+        vs->fidp->open_flags = flags;
         v9fs_open_post_open(s, vs, err);
     }
     return;
@@ -1846,7 +1859,8 @@ static void v9fs_lcreate(V9fsState *s, V9fsPDU *pdu)
     flags &= ~O_DIRECT;
 
     vs->fidp->fs.fd = v9fs_do_open2(s, vs->fullname.data, vs->fidp->uid,
-            gid, flags, mode);
+                                    gid, flags, mode);
+    vs->fidp->open_flags = flags;
     v9fs_lcreate_post_do_open2(s, vs, err);
     return;
 

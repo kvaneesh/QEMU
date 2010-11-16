@@ -176,6 +176,8 @@ enum {
     P9_FID_XATTR,
 };
 
+#define P9_FID_MIGRATE 0x1
+
 typedef struct V9fsXattr
 {
     int64_t copied_len;
@@ -188,12 +190,14 @@ typedef struct V9fsXattr
 struct V9fsFidState
 {
     int fid_type;
+    int fid_flags;
+    int open_flags;
     int32_t fid;
     V9fsString path;
     union {
-	int fd;
-	DIR *dir;
-	V9fsXattr xattr;
+        int fd;
+        DIR *dir;
+        V9fsXattr xattr;
     } fs;
     uid_t uid;
     V9fsFidState *next;
