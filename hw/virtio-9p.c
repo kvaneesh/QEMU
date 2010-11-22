@@ -3755,6 +3755,7 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
     int i, len;
     struct stat stat;
     FsTypeEntry *fse;
+    static int p9_instance;
 
 
     s = (V9fsState *)virtio_common_init("virtio-9p",
@@ -3839,7 +3840,7 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
     s->vdev.get_config = virtio_9p_get_config;
 
     /* instance id should be derived from mount tag */
-    register_savevm(dev, "virtio-9p", -1, 1,
+    register_savevm(dev, "virtio-9p", p9_instance++, 1,
                     virtio_9p_save, virtio_9p_load, s);
     return &s->vdev;
 }
