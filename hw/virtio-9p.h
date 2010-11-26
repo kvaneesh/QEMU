@@ -7,6 +7,7 @@
 #include <utime.h>
 
 #include "file-op-9p.h"
+#include "qemu-thread.h"
 
 /* The feature bitmap for virtio 9P */
 /* The mount point is specified in a config variable */
@@ -217,6 +218,10 @@ typedef struct V9fsState
     size_t config_size;
     enum p9_proto_version proto_version;
     int32_t msize;
+    int32_t pending_request;
+    QemuMutex pending_request_mutex;
+    QTAILQ_ENTRY(V9fsState) fs_list;
+    QemuCond complete;
 } V9fsState;
 
 typedef struct V9fsCreateState {
@@ -508,4 +513,5 @@ static inline size_t do_pdu_unpack(void *dst, struct iovec *sg, int sg_count,
     return pdu_packunpack(dst, sg, sg_count, offset, size, 0);
 }
 
+extern void virtio_9p_wait_for_completion(void);
 #endif

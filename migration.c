@@ -351,6 +351,8 @@ void migrate_fd_connect(FdMigrationState *s)
     migrate_fd_put_ready(s);
 }
 
+extern void virtio_9p_wait_for_completion(void);
+
 void migrate_fd_put_ready(void *opaque)
 {
     FdMigrationState *s = opaque;
@@ -370,6 +372,8 @@ void migrate_fd_put_ready(void *opaque)
 
         qemu_aio_flush();
         bdrv_flush_all();
+        virtio_9p_wait_for_completion();
+
         if ((qemu_savevm_state_complete(s->mon, s->file)) < 0) {
             if (old_vm_running) {
                 vm_start();

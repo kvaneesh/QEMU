@@ -22,6 +22,12 @@
 
 int debug_9p_pdu;
 
+/* List of active 9p file systems */
+static QTAILQ_HEAD(, V9fsState) v9fs_states =
+    QTAILQ_HEAD_INITIALIZER(v9fs_states);
+
+static int pending_migrate;
+
 enum {
     Oread   = 0x00,
     Owrite  = 0x01,
@@ -906,6 +912,15 @@ static void complete_pdu(V9fsState *s, V9fsPDU *pdu, ssize_t len)
     virtio_notify(&s->vdev, s->vq);
 
     free_pdu(s, pdu);
+
+    /* Check whether we need to signal completion */
+    qemu_mutex_lock(&s->pending_request_mutex);
+    s->pending_request--;
+    if (pending_migrate && !s->pending_request) {
+        qemu_cond_signal(&s->complete);
+    }
+    qemu_mutex_unlock(&s->pending_request_mutex);
+
 }
 
 static mode_t v9mode_to_mode(uint32_t mode, V9fsString *extension)
@@ -3613,6 +3628,10 @@ static void submit_pdu(V9fsState *s, V9fsPDU *pdu)
     handler = pdu_handlers[pdu->id];
     BUG_ON(handler == NULL);
 
+    qemu_mutex_lock(&s->pending_request_mutex);
+    s->pending_request++;
+    qemu_mutex_unlock(&s->pending_request_mutex);
+
     handler(s, pdu);
 }
 
@@ -3663,6 +3682,28 @@ static void virtio_9p_get_config(VirtIODevice *vdev, uint8_t *config)
     memcpy(cfg->tag, s->tag, s->tag_len);
     memcpy(config, cfg, s->config_size);
     qemu_free(cfg);
+}
+
+void virtio_9p_wait_for_completion(void)
+{
+    V9fsState *s;
+
+    /* Mark a migration request. FIXME!! where to reset this ? */
+    pending_migrate = 1;
+    QTAILQ_FOREACH(s, &v9fs_states, fs_list) {
+        /*
+         * If we have pending request, Wait for
+         * completion. FIXME!! can we miss a wakeup.
+         * I guess so in that case we would need a timedwait
+         */
+        qemu_mutex_lock(&s->pending_request_mutex);
+
+        while (s->pending_request) {
+            qemu_cond_timedwait(&s->complete, &s->pending_request_mutex, 100);
+        }
+
+        qemu_mutex_unlock(&s->pending_request_mutex);
+    }
 }
 
 static void virtio_9p_save_string(QEMUFile *f, V9fsString *path)
@@ -3838,6 +3879,9 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
     s->config_size = sizeof(struct virtio_9p_config) +
                         s->tag_len;
     s->vdev.get_config = virtio_9p_get_config;
+    qemu_mutex_init(&s->pending_request_mutex);
+    qemu_cond_init(&s->complete);
+    QTAILQ_INSERT_TAIL(&v9fs_states, s, fs_list);
 
     /* instance id should be derived from mount tag */
     register_savevm(dev, "virtio-9p", p9_instance++, 1,
