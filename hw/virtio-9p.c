@@ -3790,6 +3790,14 @@ static int virtio_9p_load(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
+int virtio_9p_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
+{
+    V9fsState *s = opaque;
+
+    /* it should return 0 if there is pending request */
+    return (stage == 2) && !s->pending_request;
+}
+
 VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
  {
     V9fsState *s;
@@ -3884,8 +3892,9 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
     QTAILQ_INSERT_TAIL(&v9fs_states, s, fs_list);
 
     /* instance id should be derived from mount tag */
-    register_savevm(dev, "virtio-9p", p9_instance++, 1,
-                    virtio_9p_save, virtio_9p_load, s);
+    register_savevm_live(dev, "virtio-9p", 0, 4, NULL, virtio_9p_save_live,
+                         virtio_9p_save, virtio_9p_load, s);
+
     return &s->vdev;
 }
 
